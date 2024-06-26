@@ -14,19 +14,19 @@ func NewLSMTree() *LSMTree {
 	return &LSMTree{}
 }
 
-func (t *LSMTree) Get(key []byte) ([]byte, error) {
+func (t *LSMTree) Get(k string) (*Record, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (t *LSMTree) Range() error {
+func (t *LSMTree) Put(r Record) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (t *LSMTree) Put(key, value []byte) error {
+func (t *LSMTree) Del(k string) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (t *LSMTree) Del(key []byte) error {
+func (t *LSMTree) Compact() error {
 	return fmt.Errorf("not implemented")
 }
 

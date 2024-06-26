@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/google/btree"
 )
@@ -12,38 +13,59 @@ const (
 )
 
 type Memtable struct {
-	tree    *btree.BTreeG[Record]
+	sync.RWMutex
+	tree    *btree.BTreeG[string]
+	hmap    map[string]Record
 	wal     *WAL
 	maxSize uint64
 }
 
 func NewMemtable() *Memtable {
-	tree := btree.NewG(DefaultTreeOrder, recordLessFunc)
+	tree := btree.NewOrderedG[string](DefaultTreeOrder)
+	hmap := make(map[string]Record)
 	return &Memtable{
 		tree:    tree,
+		hmap:    hmap,
 		wal:     nil,
 		maxSize: DefaultMaxTableSize,
 	}
 }
 
-func (m *Memtable) Get(key []byte) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+func (m *Memtable) Get(k string) (*Record, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	// Get the record
+	r, ok := m.hmap[k]
+	if !ok {
+		return nil, nil
+	}
+	return &r, nil
 }
 
-func (m *Memtable) Range() error {
-	return fmt.Errorf("not implemented")
+func (m *Memtable) Put(r Record) error {
+	m.Lock()
+	defer m.Unlock()
+
+	// Set the record in the hash-map
+	m.hmap[r.Key] = r
+
+	// Add the record to the tree
+	m.tree.ReplaceOrInsert(r.Key)
+
+	// Done
+	return nil
 }
 
-func (m *Memtable) Put(key, value []byte) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (m *Memtable) Del(key []byte) error {
-	return fmt.Errorf("not implemented")
+func (m *Memtable) Del(k string) error {
+	return m.Put(Record{
+		Key:  k,
+		Tomb: true,
+	})
 }
 
 func (m *Memtable) Full() bool {
-	return m.tree.Len() >= int(m.maxSize)
+	return len(m.hmap) >= int(m.maxSize)
 }
 
 func (m *Memtable) Flush() error {
