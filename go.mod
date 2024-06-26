@@ -7,4 +7,7 @@ require (
 	github.com/golang/snappy v0.0.4
 )
 
-require github.com/bits-and-blooms/bitset v1.10.0 // indirect
+require (
+	github.com/bits-and-blooms/bitset v1.10.0 // indirect
+	github.com/google/btree v1.1.2 // indirect
+)
