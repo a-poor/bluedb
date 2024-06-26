@@ -7,7 +7,7 @@ type Level struct {
 	tables []*SSTable
 }
 
-func (t *Level) Get(key []byte) ([]byte, error) {
+func (t *Level) Get(key string) (*Record, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

@@ -29,3 +29,6 @@ func (t *LSMTree) Put(key, value []byte) error {
 func (t *LSMTree) Del(key []byte) error {
 	return fmt.Errorf("not implemented")
 }
+
+type LSMTreeMeta struct {
+}

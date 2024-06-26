@@ -2,26 +2,72 @@ package storage
 
 import (
 	"bufio"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/bits-and-blooms/bloom/v3"
 )
 
 type SSTable struct {
 	id    string
+	path  string
 	meta  SSTMeta
-	file  os.File
+	file  *os.File
 	bloom bloom.BloomFilter
 }
 
-func NewSSTable() (*SSTable, error) {
+func NewSSTable(p string) (*SSTable, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func ReadSSTable() (*SSTable, error) {
-	return nil, fmt.Errorf("not implemented")
+// ReadSSTable reads in an existing SSTable, with the given id,
+// at the given path, and returns it.
+//
+// It reads in the SSTable's metadata, opens a file handle,
+// and generates the bloom filter.
+func ReadSSTable(id string, p string) (*SSTable, error) {
+	// Load the metadata file
+	metaPath := path.Join(p, id+".meta")
+	b, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sst id=%q meta file: %w", id, err)
+	}
+	var meta SSTMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sst id=%q meta file as json: %w", id, err)
+	}
+
+	// Read in the bloom filter
+	bfPath := path.Join(p, id+".bloom")
+	f, err := os.Open(bfPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open sst id=%q bloom filter: %w", id, err)
+	}
+	defer f.Close()
+
+	var bloom bloom.BloomFilter
+	if err := binary.Read(f, binary.LittleEndian, &bloom); err != nil {
+		return nil, fmt.Errorf("failed to read sst id=%q bloom filter: %w", id, err)
+	}
+
+	// Open the data file
+	filePath := path.Join(p, id+".data")
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open sst id=%q data file: %w", id, err)
+	}
+
+	// Create and return the table
+	return &SSTable{
+		id:    id,
+		path:  p,
+		meta:  meta,
+		file:  file,
+		bloom: bloom,
+	}, nil
 }
 
 func (t *SSTable) MightContain(key string) (bool, error) {
@@ -73,7 +119,7 @@ func (t *SSTable) scan(fn func(r Record) (bool, error)) error {
 	}
 
 	// Create a new scanner
-	scan := bufio.NewScanner(&t.file)
+	scan := bufio.NewScanner(t.file)
 
 	// Scan the table
 	for scan.Scan() {
