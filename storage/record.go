@@ -8,10 +8,6 @@ type Record struct {
 	Value map[string]any `json:"value,omitempty"`
 }
 
-func recordLessFunc(a, b Record) bool {
-	return a.Key < b.Key
-}
-
 func NewRecord(did uint, value map[string]any) (Record, error) {
 	// Generate an id...
 	id, err := NewID(did)
