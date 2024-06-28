@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"sync"
@@ -31,19 +32,73 @@ func LoadLSMTree(conf LoadLSMTreeConf) (*LSMTree, error) {
 }
 
 func (t *LSMTree) Get(k string) (map[string]any, error) {
-	return nil, fmt.Errorf("not implemented")
+	t.RLock()
+	defer t.RUnlock()
+
+	// Check the memtable first
+	r, err := t.memtable.Get(k)
+	if err != nil {
+		return nil, err
+	}
+	if r != nil {
+		return r.Value, nil
+	}
+
+	// Check the frozen memtable (if it exists)
+	if t.frozenMemtable != nil {
+		r, err := t.frozenMemtable.Get(k)
+		if err != nil {
+			return nil, err
+		}
+		if r != nil {
+			return r.Value, nil
+		}
+	}
+
+	// Check the levels
+	for _, level := range t.levels {
+		r, err := level.Get(k)
+		if err != nil {
+			return nil, err
+		}
+		if r != nil {
+			return r.Value, nil
+		}
+	}
+
+	// Not found
+	return nil, nil
 }
 
 func (t *LSMTree) Put(k string, v map[string]any) error {
-	return fmt.Errorf("not implemented")
+	return t.memtable.Put(Record{
+		Key:   k,
+		Value: v,
+	})
 }
 
 func (t *LSMTree) Del(k string) error {
-	return fmt.Errorf("not implemented")
+	return t.memtable.Del(k)
 }
 
 func (t *LSMTree) Close() error {
-	return fmt.Errorf("not implemented")
+	t.Lock()
+	defer t.Unlock()
+
+	// Close all tables
+	var errs []error
+	var wg sync.WaitGroup
+	for _, l := range t.levels {
+		wg.Add(1)
+		go func(l *Level) {
+			defer wg.Done()
+			if err := l.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}(l)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 func (t *LSMTree) Compact() error {

@@ -8,14 +8,16 @@
 // An LSMTree is stored with the following general structure:
 //
 //	path/to/tree/
-//	├── _meta.json
-//	├── _wal.log
-//	├── levels/
-//	│   ├── {{ LEVEL_NUM }}/
-//	│   │   ├── _meta.json
-//	│   │   ├── {{ ID_OF_SST }}.data
-//	│   │   ├── {{ ID_OF_SST }}.meta
-//	│   │   ├── {{ ID_OF_SST }}.bloom
+//	|-- _meta.json
+//	|-- wals/
+//	|   +-- {{ WAL_ID }}.wal
+//	+-- levels/
+//	    +-- {{ LEVEL_NUM }}/
+//	        |-- _meta.json
+//	        +-- {{ ID_OF_SST }}/
+//	            |-- _meta.json
+//	            |-- data.dat
+//	            +-- bloom.dat
 //
 // Where in the above, LEVEL_NUM is the level number, width-4, zero-padded.
 // There are zero or more levels per tree.

@@ -19,6 +19,12 @@ const (
 	DefaultBloomFilterFPR  = 0.01
 )
 
+const (
+	SSTMetaFileName  = "_meta.json"
+	SSTDataFileName  = "data.dat"
+	SSTBloomFileName = "bloom.dat"
+)
+
 // SSTBuilder is used to build a new SSTable.
 type SSTBuilder struct {
 	Path  string // The path to the level's directory
@@ -45,12 +51,18 @@ func (b *SSTBuilder) SetUp() error {
 	}
 	b.id = id.String()
 
+	// Format the dir path
+	fp := path.Join(b.Path, b.id)
+	if err := os.Mkdir(fp, 0755); err != nil {
+		return err
+	}
+
 	// Set the create timestamp
 	b.create = time.Now()
 
 	// Open the data file
-	p := fmtSSTDataPath(b.Path, b.id)
-	f, err := os.Create(p)
+	dp := path.Join(fp, SSTDataFileName)
+	f, err := os.Create(dp)
 	if err != nil {
 		return err
 	}
@@ -121,7 +133,7 @@ func (tb *SSTBuilder) Finish() (*SSTable, error) {
 	}
 
 	// Write the metadata to disk
-	mdp := fmtSSTMetaPath(tb.Path, tb.id)
+	mdp := path.Join(tb.Path, tb.id, SSTMetaFileName)
 	b, err := json.Marshal(md)
 	if err != nil {
 		return nil, err
@@ -131,7 +143,7 @@ func (tb *SSTBuilder) Finish() (*SSTable, error) {
 	}
 
 	// Write the bloom filter to disk
-	bfp := fmtSSTBloomPath(tb.Path, tb.id)
+	bfp := path.Join(tb.Path, tb.id, SSTBloomFileName)
 	b, err = tb.bf.MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -171,8 +183,11 @@ type SSTable struct {
 // It reads in the SSTable's metadata, opens a file handle,
 // and generates the bloom filter.
 func ReadSSTable(p string, id string) (*SSTable, error) {
+	// Format the directory path
+	dirp := path.Join(p, id)
+
 	// Load the metadata file
-	metaPath := fmtSSTMetaPath(p, id)
+	metaPath := path.Join(dirp, SSTMetaFileName)
 	b, err := os.ReadFile(metaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sst id=%q meta file: %w", id, err)
@@ -183,7 +198,7 @@ func ReadSSTable(p string, id string) (*SSTable, error) {
 	}
 
 	// Read in the bloom filter
-	bfPath := fmtSSTBloomPath(p, id)
+	bfPath := path.Join(dirp, SSTBloomFileName)
 	f, err := os.Open(bfPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sst id=%q bloom filter: %w", id, err)
@@ -196,7 +211,7 @@ func ReadSSTable(p string, id string) (*SSTable, error) {
 	}
 
 	// Open the data file
-	filePath := fmtSSTDataPath(p, id)
+	filePath := path.Join(dirp, SSTDataFileName)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sst id=%q data file: %w", id, err)
@@ -349,18 +364,21 @@ func (t *SSTable) DeleteTable() error {
 		return err
 	}
 
+	// Format the directory path
+	dirp := path.Join(t.path, t.id)
+
 	// Delete the files
-	mdp := fmtSSTMetaPath(t.path, t.id)
+	mdp := path.Join(dirp, SSTMetaFileName)
 	if err := os.Remove(mdp); err != nil {
 		return err
 	}
 
-	bfp := fmtSSTBloomPath(t.path, t.id)
+	bfp := path.Join(dirp, SSTBloomFileName)
 	if err := os.Remove(bfp); err != nil {
 		return err
 	}
 
-	dp := fmtSSTDataPath(t.path, t.id)
+	dp := path.Join(dirp, SSTDataFileName)
 	if err := os.Remove(dp); err != nil {
 		return err
 	}
@@ -376,18 +394,6 @@ type SSTMeta struct {
 	MaxKey      string
 	RecordCount uint64
 	CreatedAt   time.Time
-}
-
-func fmtSSTMetaPath(p, id string) string {
-	return path.Join(p, id+".meta")
-}
-
-func fmtSSTBloomPath(p, id string) string {
-	return path.Join(p, id+".bloom")
-}
-
-func fmtSSTDataPath(p, id string) string {
-	return path.Join(p, id+".data")
 }
 
 type sstIterator struct {

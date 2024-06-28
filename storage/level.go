@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -101,7 +102,17 @@ func (l *Level) Get(key string) (*Record, error) {
 }
 
 func (l *Level) AddTable(table *SSTable) error {
-	return fmt.Errorf("not implemented")
+	l.Lock()
+	defer l.Unlock()
+
+	// Append the table
+	l.tables = append(l.tables, table)
+
+	// Update the metadata
+	if err := l.updateMetadata(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Compact merges the data in the tables in the level l, into
@@ -300,6 +311,26 @@ func (l *Level) updateMetadata() error {
 		return fmt.Errorf("failed to write metadata to file: %w", err)
 	}
 	return nil
+}
+
+func (l *Level) Close() error {
+	l.Lock()
+	defer l.Unlock()
+
+	// Close all tables
+	var errs []error
+	var wg sync.WaitGroup
+	for _, t := range l.tables {
+		wg.Add(1)
+		go func(t *SSTable) {
+			defer wg.Done()
+			if err := t.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}(t)
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 type LevelMeta struct {
