@@ -21,16 +21,17 @@ const (
 
 // SSTBuilder is used to build a new SSTable.
 type SSTBuilder struct {
-	Path  string // The path to the table's directory
-	Level uint8  // The table's level
+	Path  string // The path to the level's directory
+	Level uint16 // The table's level
 
-	id     string
-	minKey string
-	maxKey string
-	count  uint64
-	bf     *bloom.BloomFilter
-	file   *os.File
-	create time.Time
+	id     string    // The new table's id
+	minKey string    // The current min key in the table
+	maxKey string    // The current max key in the table
+	count  uint64    // The current record count
+	create time.Time // Create timestamp
+
+	bf   *bloom.BloomFilter // Active bloom filter
+	file *os.File           // Active data file handle
 }
 
 // SetUp sets up the SSTBuilder. It generates a unique id,
@@ -370,7 +371,7 @@ func (t *SSTable) DeleteTable() error {
 
 type SSTMeta struct {
 	ID          string
-	Level       uint8
+	Level       uint16
 	MinKey      string
 	MaxKey      string
 	RecordCount uint64

@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultTreeOrder    = 2
+	DefaultTreeOrder    = 3
 	DefaultMaxTableSize = 1 << 10
 )
 
@@ -18,6 +18,7 @@ type Memtable struct {
 	hmap    map[string]Record
 	wal     *WAL
 	maxSize uint64
+	frozen  bool
 }
 
 func NewMemtable() *Memtable {
@@ -28,6 +29,7 @@ func NewMemtable() *Memtable {
 		hmap:    hmap,
 		wal:     nil,
 		maxSize: DefaultMaxTableSize,
+		frozen:  false,
 	}
 }
 
@@ -46,6 +48,10 @@ func (m *Memtable) Get(k string) (*Record, error) {
 func (m *Memtable) Put(r Record) error {
 	m.Lock()
 	defer m.Unlock()
+
+	if m.frozen {
+		return fmt.Errorf("memtable is frozen")
+	}
 
 	// Set the record in the hash-map
 	m.hmap[r.Key] = r
@@ -68,6 +74,18 @@ func (m *Memtable) Full() bool {
 	return len(m.hmap) >= int(m.maxSize)
 }
 
-func (m *Memtable) Flush() error {
+func (m *Memtable) Freeze() {
+	m.Lock()
+	defer m.Unlock()
+	m.frozen = true
+}
+
+func (m *Memtable) Compact(p string, n int) (*SSTable, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *Memtable) Close() error {
+	m.Lock()
+	defer m.Unlock()
 	return fmt.Errorf("not implemented")
 }

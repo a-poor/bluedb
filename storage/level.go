@@ -1,26 +1,74 @@
 package storage
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"sync"
 	"time"
 )
 
+// DefaultLevelMaxSize is the default maximum number
+// of tables that can be stored in a level.
+const DefaultLevelMaxSize = 10
+
 type Level struct {
 	sync.RWMutex
-	path   string
-	meta   LevelMeta
-	tables []*SSTable
+	path   string     // The path to this level's directory on disk
+	meta   LevelMeta  // The level's metadata
+	tables []*SSTable // Handles to the level's tables
 }
 
-func CreateLevel() (*Level, error) {
+// CreateLevel creates a new level handle for the given level
+// number in the given directory.
+func CreateLevel(n uint16, d string) (*Level, error) {
+	// Format the level path
+	p := fmtLevelPath(d, n)
+
+	// Make the directory
+	if err := os.Mkdir(p, 0755); err != nil {
+		return nil, err
+	}
+
+	// Create the metadata
+	meta := LevelMeta{
+		Level:   n,
+		MinKey:  "",
+		MaxKey:  "",
+		Tables:  []string{},
+		MaxSize: DefaultLevelMaxSize,
+	}
+
+	// Write the metadata file
+	metaPath := path.Join(p, "_meta.json")
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(metaPath, b, 0644); err != nil {
+		return nil, err
+	}
+
+	// Create the level
+	level := &Level{
+		path:   p,
+		meta:   meta,
+		tables: []*SSTable{},
+	}
+
+	// Done
+	return level, nil
+}
+
+func LoadLevel(n uint16, d string) (*Level, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func LoadLevel() (*Level, error) {
-	return nil, fmt.Errorf("not implemented")
+// Full checks if the level has the maximum number of tables.
+func (l *Level) Full() bool {
+	return len(l.tables) >= int(l.meta.MaxSize)
 }
 
 func (l *Level) Get(key string) (*Record, error) {
@@ -56,7 +104,10 @@ func (l *Level) AddTable(table *SSTable) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (l *Level) Compact() (*SSTable, []string, error) {
+// Compact merges the data in the tables in the level l, into
+// a single table, and writes it to the next level's directory,
+// at the given path, and returns a handle to the new table.
+func (l *Level) Compact(path string) (*SSTable, []string, error) {
 	l.Lock()
 	defer l.Unlock()
 
@@ -65,12 +116,11 @@ func (l *Level) Compact() (*SSTable, []string, error) {
 		return nil, nil, fmt.Errorf("no tables to compact")
 	}
 
-	// Get the table dir
-	dir := fmtSSTablePath(l.path, l.meta.Level+1)
+	// Get the level's directory
 
 	// Create a table builder
 	builder := &SSTBuilder{
-		Path:  dir,
+		Path:  path,
 		Level: l.meta.Level + 1,
 	}
 	if err := builder.SetUp(); err != nil {
@@ -97,6 +147,12 @@ func (l *Level) Compact() (*SSTable, []string, error) {
 	}
 
 	// Merge the tables
+	//
+	// Note: Track the last key so we can skip
+	// duplicates by timestamp
+	var lastk string
+
+	// Loop until all iterators are done
 	for !allDone(itrs) {
 		// Pick the next record from the iterator
 		// - Pick the lowest key
@@ -130,13 +186,20 @@ func (l *Level) Compact() (*SSTable, []string, error) {
 				continue
 			}
 
-			// Is this one equal?
-			if itr.current.Key == bestr.Key && l.tables[i].meta.CreatedAt.Before(bestt) {
+			// Is this key equal?
+			//
+			// Then the most recent table overwrites the others
+			if itr.current.Key == bestr.Key && l.tables[i].meta.CreatedAt.After(bestt) {
 				bestr = itr.current
 				bestt = l.tables[i].meta.CreatedAt
 				besti = i
 				continue
 			}
+		}
+
+		// Have we already seen this key?
+		if lastk == bestr.Key {
+			continue
 		}
 
 		// Add the record to the builder
@@ -147,6 +210,8 @@ func (l *Level) Compact() (*SSTable, []string, error) {
 		// Advance the iterator
 		itrs[besti].next()
 
+		// Store the last key that was added
+		lastk = bestr.Key
 	}
 
 	// Build the new table
@@ -188,18 +253,59 @@ func (l *Level) DeleteTables(ids []string) error {
 		}
 	}
 
-	// Done
+	// Update the table handles
 	l.tables = tablesToKeep
+
+	// Update the metadata
+	if err := l.updateMetadata(); err != nil {
+		return err
+	}
+
+	// Done
+	return nil
+}
+
+func (l *Level) updateMetadata() error {
+	// Get the latest key range
+	var minKey, maxKey string
+	for _, t := range l.tables {
+		if minKey == "" || t.meta.MinKey < minKey {
+			minKey = t.meta.MinKey
+		}
+		if maxKey == "" || t.meta.MaxKey > maxKey {
+			maxKey = t.meta.MaxKey
+		}
+	}
+
+	// Get the latest table key ids
+	tableIDs := make([]string, len(l.tables))
+	for i, t := range l.tables {
+		tableIDs[i] = t.meta.ID
+	}
+
+	// Store the new metadata
+	l.meta.MinKey = minKey
+	l.meta.MaxKey = maxKey
+	l.meta.Tables = tableIDs
+
+	// Marshal the metadata
+	b, err := json.Marshal(l.meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Write the metadata to the file
+	p := path.Join(l.path, "_meta.json")
+	if err := os.WriteFile(p, b, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata to file: %w", err)
+	}
 	return nil
 }
 
 type LevelMeta struct {
-	Level  uint8
-	MinKey string
-	MaxKey string
-}
-
-func fmtSSTablePath(levelPath string, level uint8) string {
-	n := fmt.Sprintf("%04d", level)
-	return path.Join(levelPath, n)
+	Level   uint16   `json:"level"`   // Level number (starts with 1; 0 is memtable)
+	MaxSize uint16   `json:"maxSize"` // Max num of tables in this level
+	MinKey  string   `json:"minKey"`  // Minimum key in this level
+	MaxKey  string   `json:"maxKey"`  // Maximum key in this level
+	Tables  []string `json:"tables"`  // IDs of tables in this level
 }
