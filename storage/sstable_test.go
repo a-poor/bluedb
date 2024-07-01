@@ -138,7 +138,11 @@ func TestSSTBuilder(t *testing.T) {
 
 func TestSSTable(t *testing.T) {}
 
-func TestReadSSTable(t *testing.T) {}
+func TestReadSSTable(t *testing.T) {
+	t.Run("", func(t *testing.T) {
+		// TODO: implement
+	})
+}
 
 func TestSSTable_Get(t *testing.T) {}
 
